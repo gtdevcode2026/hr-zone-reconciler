@@ -40,10 +40,12 @@ taken before each change.
 
 import argparse
 import os
+import re
 import sys
 import shutil
 import tempfile
 import time
+import unicodedata
 from typing import List, Optional
 
 import pandas as pd
@@ -394,13 +396,27 @@ def _norm_id(v) -> str:
 
 
 def _norm_email(v) -> str:
-    """Normalize an email for matching / dedupe: trimmed + lower-cased; '' if NA."""
+    """Normalize an email for matching / dedupe.
+
+    Lower-cased and stripped of characters that are never valid inside an
+    address but routinely sneak into exported cells and silently break an exact
+    match: a 'mailto:' prefix, surrounding quotes / angle brackets, and ALL
+    whitespace and zero-width characters (NBSP, zero-width space/joiner, BOM)
+    anywhere in the string. Returns '' for NA. This only removes invalid
+    characters, so it can never merge two genuinely different addresses."""
     try:
         if pd.isna(v):
             return ""
     except (TypeError, ValueError):
         pass
-    return str(v).strip().lower()
+    # NFKC folds full-width / compatibility forms (and NBSP -> space) to ASCII.
+    s = unicodedata.normalize("NFKC", str(v)).strip().lower()
+    if s.startswith("mailto:"):
+        s = s[len("mailto:"):]
+    s = s.strip().strip('"\'<>').strip()
+    # Remove any whitespace + zero-width characters left anywhere in the string.
+    s = re.sub(r"[\s\u200b\u200c\u200d\ufeff]+", "", s)
+    return s
 
 
 def _norm_local(v) -> str:
@@ -613,7 +629,7 @@ def reconcile_zone_inplace(master_path: str, zone_path: str, zone_override: Opti
 
     # 10) FINAL step: remove duplicate emails (keep first; blanks are exempt so
     #     they don't all collapse into one row).
-    email_norm = master[KEY_EMAIL].fillna("").astype(str).str.strip().str.lower()
+    email_norm = master[KEY_EMAIL].map(_norm_email)
     dup_mask = email_norm.duplicated(keep="first") & email_norm.ne("")
     dedupe_removed = int(dup_mask.sum())
     if dedupe_removed:
