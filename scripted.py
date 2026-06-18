@@ -10,13 +10,6 @@ Run ONCE PER ZONE, manually:
            [--roster-tab NAME] [--add-tab NAME]
            [--no-clean] [--force-clean] [--chunksize N] [--parallel off|auto|N]
 
-To verify matching without changing anything (read-only), add --diagnose:
-
-    python scripted.py <datamart_file> <zones_workbook> --diagnose [--zone NAME]
-
-It lists roster users that map to NOTHING in the userbase (the cause of any
-unexpected "not found in zone"), with raw + normalized keys and near-miss clues.
-
 The pipeline
 ------------
 Step 1  Column titles come from the built-in REQUIRED_COLUMNS list (the "old
@@ -665,84 +658,6 @@ def reconcile_zone_inplace(master_path: str, zone_path: str, zone_override: Opti
 
 
 # =========================================================
-# Diagnostics: why do roster users fail to map? (read-only)
-# =========================================================
-def diagnose_matching(master_path: str, zone_path: str, zone_override: Optional[str] = None,
-                      roster_tab: Optional[str] = None, add_tab: Optional[str] = None) -> int:
-    """Report roster rows that match NOTHING in the userbase, with raw +
-    normalized keys and near-miss clues. Read-only: writes no file. Returns the
-    number of unmatched roster rows."""
-    name_col = "Employee Name"
-    master = load_table(master_path)
-    roster, add_rows, rname, aname = load_zone_tabs(zone_path, roster_tab, add_tab)
-    print(f"userbase rows: {len(master)} | roster tab: {rname!r} rows: {len(roster)} "
-          f"| add tab: {aname!r} rows: {len(add_rows)}")
-    print("userbase columns:", list(master.columns))
-    print("roster   columns:", list(roster.columns))
-
-    emap = build_index_map(master[KEY_EMAIL].map(_norm_email)) if KEY_EMAIL in master.columns else {}
-    gmap = build_index_map(master[KEY_ID].map(_norm_id)) if KEY_ID in master.columns else {}
-    lmap = build_index_map(master[LOCAL_ID].map(_norm_local)) if LOCAL_ID in master.columns else {}
-
-    m_email_set = set(emap)
-    m_gid_set = set(gmap)
-    gid_no_zeros: dict = {}
-    for k in m_gid_set:
-        gid_no_zeros.setdefault(k.lstrip("0"), []).append(k)
-    local_part: dict = {}
-    for e in m_email_set:
-        local_part.setdefault(e.split("@")[0], []).append(e)
-
-    has_lid = LOCAL_ID in roster.columns
-    if KEY_EMAIL in roster.columns:
-        rmask = valid_email_mask(roster)
-        print("\nroster rows with invalid/blank email (skipped by reconcile):", int((~rmask).sum()))
-
-    unmatched = []
-    for pos in range(len(roster)):
-        row = roster.iloc[pos]
-        e = _norm_email(row[KEY_EMAIL]) if KEY_EMAIL in roster.columns else ""
-        g = _norm_id(row[KEY_ID]) if KEY_ID in roster.columns else ""
-        l = _norm_local(row[LOCAL_ID]) if has_lid else ""
-        if not cascade_match(e, g, l, emap, gmap, lmap):
-            unmatched.append((pos, row, e, g, l))
-
-    print("UNMATCHED roster rows (match NOTHING in userbase):", len(unmatched))
-    print("=" * 78)
-    for pos, row, e, g, l in unmatched:
-        nm = str(row.get(name_col, "")) if name_col in roster.columns else ""
-        print(f"roster row {pos}: name={nm!r}")
-        print("   raw   email={!r} gid={!r} lid={!r}".format(
-            row.get(KEY_EMAIL), row.get(KEY_ID),
-            row.get(LOCAL_ID) if has_lid else "(no Local Employee ID column)"))
-        print(f"   norm  email={e!r} gid={g!r} lid={l!r}")
-        clues = []
-        if e and e not in m_email_set:
-            lp = e.split("@")[0]
-            if lp in local_part:
-                clues.append("email LOCAL-PART matches userbase email(s) {} -> DOMAIN differs".format(local_part[lp][:3]))
-        if g and g not in m_gid_set:
-            gz = g.lstrip("0")
-            if gz in gid_no_zeros:
-                clues.append("gid matches userbase id(s) {} after dropping leading zeros".format(gid_no_zeros[gz][:3]))
-        if name_col in roster.columns and name_col in master.columns and nm:
-            same = master.index[master[name_col].astype(str).str.strip().str.lower() == nm.strip().lower()]
-            for idx in list(same)[:2]:
-                clues.append("NAME matches userbase row {}: email={!r} gid={!r} lid={!r}".format(
-                    idx,
-                    master.at[idx, KEY_EMAIL] if KEY_EMAIL in master.columns else "",
-                    master.at[idx, KEY_ID] if KEY_ID in master.columns else "",
-                    master.at[idx, LOCAL_ID] if LOCAL_ID in master.columns else ""))
-        if clues:
-            for c in clues:
-                print("   CLUE:", c)
-        else:
-            print("   CLUE: no near-miss found (may genuinely be absent from the userbase)")
-        print("-" * 78)
-    return len(unmatched)
-
-
-# =========================================================
 # CLI
 # =========================================================
 def main():
@@ -762,10 +677,6 @@ def main():
     ap.add_argument("--add-tab", default=None,
                     help="Name of the 'add to list' tab (default: auto-detect a tab whose "
                          "name contains 'add').")
-    ap.add_argument("--diagnose", action="store_true",
-                    help="Read-only: report roster users that fail to map to the userbase "
-                         "(raw + normalized keys, near-miss clues). No clean, no reconcile, "
-                         "no file is written.")
     ap.add_argument("--no-clean", action="store_true",
                     help="Never run Step 1-3 cleaning, even if the DataMart looks raw.")
     ap.add_argument("--force-clean", action="store_true",
@@ -786,16 +697,6 @@ def main():
     if not os.path.exists(zone_path):
         print(f"ERROR: Zone file not found: {zone_path}")
         sys.exit(1)
-
-    if args.diagnose:
-        print("-> Diagnose mode (read-only): checking why roster users fail to map ...")
-        try:
-            diagnose_matching(master_path, zone_path, zone_override=args.zone,
-                              roster_tab=args.roster_tab, add_tab=args.add_tab)
-        except ValueError as e:
-            print(f"ERROR: {e}")
-            sys.exit(3)
-        return
 
     prepared = is_master_prepared(master_path)
 

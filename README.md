@@ -42,20 +42,19 @@ taken before each change). The zones workbook is read-only.
 
 ## Diagnosing match failures
 
-If users you expect to match come out as `not found in zone`, run the built-in
-read-only diagnostic with `--diagnose`. It uses the script's exact matching and
-prints every roster row that maps to **nothing** in the userbase, with raw +
-normalized Email / Global ID / Local ID and a near-miss clue (e.g. "LOCAL-PART
-matches … DOMAIN differs", "matches after dropping leading zeros", "same name,
-different email"):
+If users you expect to match come out as `not found in zone`, run the read-only
+diagnostic. It reuses the script's exact matching and prints every roster row
+that matches **nothing** in the userbase, with raw + normalized
+Email / Global ID / Local ID and a near-miss clue (e.g. "matches after dropping
+leading zeros", "same name, different email"):
 
 ```bash
-python scripted.py <userbase_file> <zones_workbook> --diagnose [--zone NAME] [--roster-tab NAME] [--add-tab NAME]
+python diagnose.py <userbase_file> <zones_workbook> [--zone NAME] [--roster-tab NAME] [--add-tab NAME]
 ```
 
-In `--diagnose` mode nothing is cleaned, reconciled, or written. The
-`raw email=...` lines use `repr()`, so invisible characters (non-breaking /
-zero-width spaces, BOM, stray quotes) show up plainly.
+Run it from the same folder as `scripted.py` (it imports it). It never writes
+any file. The `raw email=...` lines use `repr()`, so invisible characters
+(non-breaking / zero-width spaces, BOM, stray quotes) show up plainly.
 
 ## Notes
 
