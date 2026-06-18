@@ -1,0 +1,13 @@
+# Data files — never commit HR data
+*.xlsx
+*.xlsm
+*.csv
+
+# Backups produced by the script
+*.backup-*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
