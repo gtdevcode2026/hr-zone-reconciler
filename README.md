@@ -40,6 +40,22 @@ taken before each change). The zones workbook is read-only.
    (anyone already present is skipped).
 7. Duplicate emails are removed from the userbase (keep first).
 
+## Diagnosing match failures
+
+If users you expect to match come out as `not found in zone`, run the read-only
+diagnostic. It reuses the script's exact matching and prints every roster row
+that matches **nothing** in the userbase, with raw + normalized
+Email / Global ID / Local ID and a near-miss clue (e.g. "matches after dropping
+leading zeros", "same name, different email"):
+
+```bash
+python diagnose.py <userbase_file> <zones_workbook> [--zone NAME] [--roster-tab NAME] [--add-tab NAME]
+```
+
+Run it from the same folder as `scripted.py` (it imports it). It never writes
+any file. The `raw email=...` lines use `repr()`, so invisible characters
+(non-breaking / zero-width spaces, BOM, stray quotes) show up plainly.
+
 ## Notes
 
 - Matching is global across the userbase, so a person is found even if they sit in a
